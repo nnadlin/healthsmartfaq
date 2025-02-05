@@ -1,61 +1,58 @@
 import streamlit as st
-import openai
+import pandas as pd
+import numpy as np
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
 
-openai.api_key =  st.secrets["mykey"]
+# Load Data & Embeddings
+try:
+    df = pd.read_csv("qa_dataset_with_embeddings.csv")
+    question_embeddings = np.load("question_embeddings.npy") 
+except FileNotFoundError:
+    st.error("Data or embeddings file not found. Please upload them.")
+    st.stop()
 
-# Define neutral product features, benefits, pain points, and desires
-product_features = ["heart rate monitoring", "sleep tracking", "GPS", "sleep tracking, GPS, personalized workout recommendations"]
-product_benefits = ["Convenience", "Accurate Tracking for Progress Monitoring", "Improved Sleep Quality", "Energy efficiency", "Seamless Integration"]
-target_audience = ["Fitness enthusiasts who are serious about their training and looking for data-driven insights"]
-pain_points = ["Optimize Training", "Lack of Personalization", "Time constraints", "Overtraining/Undertraining"]
-desires = ["Accurate Data", "Improve Performance", "Achieve Fitness Goals", "Personalized Guidance"]
-channels = ["Instagram", "Facebook", "Twitter", "Email"]
-tones = ["Casual", "Informative", "Enthusiastic", "Humorous", "Inspirational"]
+# Choose Embedding Model (Sentence Transformers is a good option)
+model = SentenceTransformer('all-mpnet-base-v2')  # You can choose other models
 
-# Function to generate marketing copy
-def generate_copy(product_name, product_features, product_benefits, target_audience, pain_points, desires, channel, tone):
-    prompt = f"""
-    You're a marketing copywriter. Write a {channel} post caption and image description to promote the {product_name}, a new smart PulseActive.
+# Streamlit Interface
+st.title("PulseActive FAQ Chatbot")
 
-    **Target audience:** {target_audience}
+user_question = st.text_input("Enter your question:")
+search_button = st.button("Search")
+clear_button = st.button("Clear")
 
-    **Highlight:**
-    * Key features: {', '.join(product_features)}
-    * Benefits: {', '.join(product_benefits)}
-    * Address these pain points: {', '.join(pain_points)}
-    * Appeal to these desires: {', '.join(desires)}
+if clear_button:
+    user_question = ""
+    st.experimental_rerun() # Clears the input field
 
-    **Tone:** {tone}
+if search_button and user_question:
+    user_embedding = model.encode(user_question)
+    similarities = cosine_similarity([user_embedding], question_embeddings)
+    best_match_index = np.argmax(similarities)
+    best_match_score = similarities[0][best_match_index]
 
-    **Image description:** A close-up shot of the {product_name} fitness tracker displaying key metrics like heart rate and steps. The background should be a clean, modern design, perhaps with subtle digital elements. The image should convey a sense of precision, data-driven insights, and advanced technology.
-    """
+    threshold = 0.6  # Experiment with this threshold value
 
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": "You are a marketing copywriter."},
-            {"role": "user", "content": prompt}
-        ]
-    )
-    copy = response['choices'][0]['message']['content']
-    caption, image_description = copy.split("\n\n")
-    return caption, image_description
+    if best_match_score >= threshold:
+        answer = df.iloc[best_match_index]['answer']  # Assuming your CSV has a 'answer' column
+        st.write(f"**Answer:** {answer}")
+        st.write(f"**Similarity Score:** {best_match_score:.2f}")
 
-# Streamlit UI
-st.title("Health Smart PulseActive")
+        # Optional: Add a helpfulness rating
+        helpful = st.radio("Was this answer helpful?", ("Yes", "No"))
+        if helpful == "Yes":
+            st.write("Glad I could help!")  # Or store feedback
+        elif helpful == "No":
+            st.write("I'll try my best to improve. Please provide feedback if possible.") # Or store feedback
 
-product_name = st.text_input("Product Name:", value="Smart PulseActive Pro")
-selected_features = st.multiselect("Product Features:", product_features)
-selected_benefits = st.multiselect("Product Benefits:", product_benefits)
-selected_audience = st.selectbox("Target Audience:", target_audience)
-selected_pain_points = st.multiselect("Pain Points:", pain_points)
-selected_desires = st.multiselect("Desires:", desires)
-selected_channel = st.selectbox("Channel:", channels)
-selected_tone = st.selectbox("Tone:", tones)
+    else:
+        st.write("I apologize, but I don't have information on that topic yet. Could you please ask other questions?")
 
-if st.button("Generate Marketing Copy"):
-    caption, image_description = generate_copy(product_name, selected_features, selected_benefits, selected_audience, selected_pain_points, selected_desires, selected_channel, selected_tone)
-    st.subheader("Caption:")
-    st.write(caption)
-    st.subheader("Image Description:")
-    st.write(image_description)
+
+# Optional: Display common FAQs (you'll need to define these)
+st.subheader("Common FAQs")
+# ... (Add code to display FAQs)
+
+# Optional: Search bar to filter questions (more advanced)
+# ... (Add code for question filtering)
