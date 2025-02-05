@@ -1,58 +1,52 @@
-import streamlit as st
+import ast
 import pandas as pd
-import numpy as np
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
+import streamlit as st
+from openai.embeddings_utils import cosine_similarity
+import openai
 
-# Load Data & Embeddings
-try:
-    df = pd.read_csv("qa_dataset_with_embeddings.csv")
-    question_embeddings = np.load("question_embeddings.npy") 
-except FileNotFoundError:
-    st.error("Data or embeddings file not found. Please upload them.")
-    st.stop()
+# Set your OpenAI API key
+openai.api_key = st.secrets["mykey"] 
 
-# Choose Embedding Model (Sentence Transformers is a good option)
-model = SentenceTransformer('all-mpnet-base-v2')  # You can choose other models
+df = pd.read_csv("qa_dataset_with_embeddings.csv")
+
+# Convert the string embeddings back to lists
+df['Question_Embedding'] = df['Question_Embedding'].apply(ast.literal_eval)
+
+def get_embedding(text, model="text-embedding-ada-002"):
+   return openai.Embedding.create(input = [text], model=model)['data'][0]['embedding']
+
+def find_best_answer(user_question):
+   # Get embedding for the user's question
+   user_question_embedding = get_embedding(user_question)
+
+   # Calculate cosine similarities for all questions in the dataset
+   df['Similarity'] = df['Question_Embedding'].apply(lambda x: cosine_similarity(x, user_question_embedding))
+
+   # Find the most similar question and get its corresponding answer
+   most_similar_index = df['Similarity'].idxmax()
+   max_similarity = df['Similarity'].max()
+
+   # Set a similarity threshold to determine if a question is relevant enough
+   similarity_threshold = 0.75  # You can adjust this value
+
+   if max_similarity >= similarity_threshold:
+      best_answer = df.loc[most_similar_index, 'Answer']
+      return best_answer
+   else:
+      return "I apologize, but I don't have information on that topic yet. Could you please ask other questions?"
+
 
 # Streamlit Interface
-st.title("PulseActive FAQ Chatbot")
+st.title("Smart FAQ Assistant (Heart, Lung, Blood Health)")
 
-user_question = st.text_input("Enter your question:")
-search_button = st.button("Search")
-clear_button = st.button("Clear")
+user_question = st.text_input("Ask a question","Who will have Cardiomyopathy?")
+search_button = st.button("Find Answer")
 
-if clear_button:
-    user_question = ""
-    st.experimental_rerun() # Clears the input field
-
-if search_button and user_question:
-    user_embedding = model.encode(user_question)
-    similarities = cosine_similarity([user_embedding], question_embeddings)
-    best_match_index = np.argmax(similarities)
-    best_match_score = similarities[0][best_match_index]
-
-    threshold = 0.6  # Experiment with this threshold value
-
-    if best_match_score >= threshold:
-        answer = df.iloc[best_match_index]['answer']  # Assuming your CSV has a 'answer' column
-        st.write(f"**Answer:** {answer}")
-        st.write(f"**Similarity Score:** {best_match_score:.2f}")
-
-        # Optional: Add a helpfulness rating
-        helpful = st.radio("Was this answer helpful?", ("Yes", "No"))
-        if helpful == "Yes":
-            st.write("Glad I could help!")  # Or store feedback
-        elif helpful == "No":
-            st.write("I'll try my best to improve. Please provide feedback if possible.") # Or store feedback
-
+if search_button:
+    if not user_question:
+        st.warning("Please enter a question.")
     else:
-        st.write("I apologize, but I don't have information on that topic yet. Could you please ask other questions?")
-
-
-# Optional: Display common FAQs (you'll need to define these)
-st.subheader("Common FAQs")
-# ... (Add code to display FAQs)
-
-# Optional: Search bar to filter questions (more advanced)
-# ... (Add code for question filtering)
+        with st.spinner("Searching for the best answer..."):  # Display a spinner while searching
+            answer = find_best_answer(user_question)
+            st.write("## Answer:")
+            st.write(answer)
